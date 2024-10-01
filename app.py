@@ -71,9 +71,19 @@ async def send_link():
     # Run the Telegram client interaction asynchronously
     bot_response = await interact_with_bot(link)
 
-    # If the bot response does not start with 'https://', return the original link
-    if not bot_response.startswith('https://'):
-        bot_response = link  # Return the original link
+    # List of texts that indicate an issue with the bot response
+    unwanted_texts = [
+        "Too many attempts, please try again later",
+        "The shared file is no longer available"
+    ]
+
+    # Check if the bot response contains any unwanted text
+    if any(unwanted_text in bot_response for unwanted_text in unwanted_texts):
+        # If any unwanted text is found, return the original link
+        bot_response = link
+    elif not bot_response.startswith('https://'):
+        # If the bot response doesn't start with 'https://', also return the original link
+        bot_response = link
 
     # If the original link had `=1`, add `=1` back to the bot's response
     if had_equal_one:
