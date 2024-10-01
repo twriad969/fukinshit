@@ -61,15 +61,18 @@ async def send_link():
     if not link:
         return jsonify({"error": "No link provided!"}), 400
 
+    # Check if the link originally has `=1` at the end
+    had_equal_one = link.endswith('=1')
+
     # Remove `=1` from the link if it exists
-    if link.endswith('=1'):
+    if had_equal_one:
         link = link[:-2]
 
     # Run the Telegram client interaction asynchronously
     bot_response = await interact_with_bot(link)
 
-    # Add `=1` back to the bot's response if necessary
-    if bot_response:
+    # If the original link had `=1`, add `=1` back to the bot's response
+    if bot_response and had_equal_one:
         bot_response += "=1"
 
     # Return the bot's response as JSON
