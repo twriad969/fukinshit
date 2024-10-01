@@ -71,8 +71,12 @@ async def send_link():
     # Run the Telegram client interaction asynchronously
     bot_response = await interact_with_bot(link)
 
+    # If the bot response does not start with 'https://', return the original link
+    if not bot_response.startswith('https://'):
+        bot_response = link  # Return the original link
+
     # If the original link had `=1`, add `=1` back to the bot's response
-    if bot_response and had_equal_one:
+    if had_equal_one:
         bot_response += "=1"
 
     # Return the bot's response as JSON
