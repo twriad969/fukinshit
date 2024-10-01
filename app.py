@@ -74,7 +74,8 @@ async def send_link():
     # List of texts that indicate an issue with the bot response
     unwanted_texts = [
         "Too many attempts, please try again later",
-        "The shared file is no longer available"
+        "The shared file is no longer available",
+        "ErrMsgLinkExpireFlag"  # Newly added unwanted message
     ]
 
     # Check if the bot response contains any unwanted text
