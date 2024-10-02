@@ -1,6 +1,8 @@
 from telethon import TelegramClient, events
 from quart import Quart, request, jsonify
 import asyncio
+import time
+from collections import deque
 
 # Telegram API details
 api_id = 27938879
@@ -12,6 +14,17 @@ app = Quart(__name__)
 
 # Global Telegram Client
 client = TelegramClient('anon', api_id, api_hash)
+
+# Limit counters
+processed_links_last_30_minutes = deque()  # Track timestamps of the last 30 mins processed links
+processed_links_today = 0  # Count of processed links today
+daily_reset_timestamp = time.time()  # Timestamp when the daily limit was last reset
+
+# Limits
+MAX_LINKS_30_MINUTES = 400
+MAX_LINKS_PER_DAY = 5000
+THIRTY_MINUTES = 30 * 60  # 30 minutes in seconds
+ONE_DAY = 24 * 60 * 60  # 1 day in seconds
 
 # Start the client globally once
 @app.before_serving
@@ -53,13 +66,38 @@ async def interact_with_bot(link_to_send):
 
     return bot_response
 
+# Helper to reset daily counters
+def reset_daily_limit():
+    global processed_links_today, daily_reset_timestamp
+    processed_links_today = 0
+    daily_reset_timestamp = time.time()
+
+# Helper to clean up old timestamps in the last 30-minute window
+def clean_old_links():
+    current_time = time.time()
+    while processed_links_last_30_minutes and (current_time - processed_links_last_30_minutes[0]) > THIRTY_MINUTES:
+        processed_links_last_30_minutes.popleft()
+
 @app.route('/')
 async def send_link():
+    global processed_links_today
+
     # Get the link from the query parameters
     link = request.args.get('link')
 
     if not link:
         return jsonify({"error": "No link provided!"}), 400
+
+    # Reset daily limit if a new day has started
+    if time.time() - daily_reset_timestamp > ONE_DAY:
+        reset_daily_limit()
+
+    # Clean up old links from the 30-minute window
+    clean_old_links()
+
+    # Check if either the 30-minute or daily limit has been exceeded
+    if len(processed_links_last_30_minutes) >= MAX_LINKS_30_MINUTES or processed_links_today >= MAX_LINKS_PER_DAY:
+        return jsonify({"response": link})  # Return the original link if limits are exceeded
 
     # Check if the link originally has `=1` at the end
     had_equal_one = link.endswith('=1')
@@ -80,21 +118,20 @@ async def send_link():
 
     # Check if the bot response contains any unwanted text
     if any(unwanted_text in bot_response for unwanted_text in unwanted_texts):
-        # If any unwanted text is found, return the original link
-        bot_response = link
+        bot_response = link  # Return the original link if any unwanted text is found
     elif not bot_response.startswith('https://'):
-        # If the bot response doesn't start with 'https://', also return the original link
-        bot_response = link
+        bot_response = link  # Return the original link if the bot's response is invalid
 
     # If the original link had `=1`, add `=1` back to the bot's response
     if had_equal_one:
         bot_response += "=1"
 
+    # Track this link processing event
+    processed_links_last_30_minutes.append(time.time())  # Record the current timestamp
+    processed_links_today += 1  # Increment the daily counter
+
     # Return the bot's response as JSON
-    if bot_response:
-        return jsonify({"response": bot_response})
-    else:
-        return jsonify({"error": "No response from bot!"}), 500
+    return jsonify({"response": bot_response})
 
 if __name__ == '__main__':
     # Run the Quart app using Uvicorn for async support
