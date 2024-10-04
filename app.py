@@ -21,8 +21,8 @@ processed_links_today = 0  # Count of processed links today
 daily_reset_timestamp = time.time()  # Timestamp when the daily limit was last reset
 
 # Limits
-MAX_LINKS_30_MINUTES = 800
-MAX_LINKS_PER_DAY = 10000
+MAX_LINKS_30_MINUTES = 1000
+MAX_LINKS_PER_DAY = 7000
 THIRTY_MINUTES = 30 * 60  # 30 minutes in seconds
 ONE_DAY = 24 * 60 * 60  # 1 day in seconds
 
@@ -88,6 +88,13 @@ async def send_link():
     if not link:
         return jsonify({"error": "No link provided!"}), 400
 
+    # Check if the link ends with `=1`
+    if not link.endswith('=1'):
+        return jsonify({"response": link})  # Return the original link if it doesn't end with `=1`
+
+    # Remove `=1` from the link before processing
+    link = link[:-2]
+
     # Reset daily limit if a new day has started
     if time.time() - daily_reset_timestamp > ONE_DAY:
         reset_daily_limit()
@@ -97,14 +104,7 @@ async def send_link():
 
     # Check if either the 30-minute or daily limit has been exceeded
     if len(processed_links_last_30_minutes) >= MAX_LINKS_30_MINUTES or processed_links_today >= MAX_LINKS_PER_DAY:
-        return jsonify({"response": link})  # Return the original link if limits are exceeded
-
-    # Check if the link originally has `=1` at the end
-    had_equal_one = link.endswith('=1')
-
-    # Remove `=1` from the link if it exists
-    if had_equal_one:
-        link = link[:-2]
+        return jsonify({"response": link + '=1'})  # Return the original link if limits are exceeded
 
     # Run the Telegram client interaction asynchronously
     bot_response = await interact_with_bot(link)
@@ -113,7 +113,7 @@ async def send_link():
     unwanted_texts = [
         "Too many attempts, please try again later",
         "The shared file is no longer available",
-        "ErrMsgLinkExpireFlag"  # Newly added unwanted message
+        "ErrMsgLinkExpireFlag"
     ]
 
     # Check if the bot response contains any unwanted text
@@ -122,9 +122,8 @@ async def send_link():
     elif not bot_response.startswith('https://'):
         bot_response = link  # Return the original link if the bot's response is invalid
 
-    # If the original link had `=1`, add `=1` back to the bot's response
-    if had_equal_one:
-        bot_response += "=1"
+    # Add `=1` back to the bot's response
+    bot_response += "=1"
 
     # Track this link processing event
     processed_links_last_30_minutes.append(time.time())  # Record the current timestamp
