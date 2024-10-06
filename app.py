@@ -21,8 +21,8 @@ processed_links_today = 0  # Count of processed links today
 daily_reset_timestamp = time.time()  # Timestamp when the daily limit was last reset
 
 # Limits
-MAX_LINKS_30_MINUTES = 1000
-MAX_LINKS_PER_DAY = 7000
+MAX_LINKS_30_MINUTES = 5000
+MAX_LINKS_PER_DAY = 50000
 THIRTY_MINUTES = 30 * 60  # 30 minutes in seconds
 ONE_DAY = 24 * 60 * 60  # 1 day in seconds
 
