@@ -1,6 +1,5 @@
 from telethon import TelegramClient, events
 from quart import Quart, request, jsonify
-from flask_cors import CORS
 import asyncio
 import time
 from collections import deque
@@ -12,7 +11,14 @@ phone_number = '+8801790423900'
 
 # Quart app (async version of Flask)
 app = Quart(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})  # Enable CORS for all routes
+
+# Enable CORS
+@app.after_request
+async def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 
 # Global Telegram Client
 client = TelegramClient('anon', api_id, api_hash)
