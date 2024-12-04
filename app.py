@@ -11,6 +11,7 @@ phone_number = '+8801790423900'
 
 # Quart app (async version of Flask)
 app = Quart(__name__)
+app.config['PROVIDE_AUTOMATIC_OPTIONS'] = True
 
 # Enable CORS
 @app.after_request
