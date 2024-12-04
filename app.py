@@ -1,9 +1,8 @@
 from telethon import TelegramClient, events
-from quart import Quart, request, jsonify, Response
+from quart import Quart, request, jsonify, make_response
 import asyncio
 import time
 from collections import deque
-import functools
 
 # Telegram API details
 api_id = 27938879
@@ -12,26 +11,6 @@ phone_number = '+8801790423900'
 
 # Create Quart app
 app = Quart(__name__)
-
-# CORS Middleware Function
-def cors_middleware(func):
-    @functools.wraps(func)
-    async def wrapper(*args, **kwargs):
-        # Prepare the response from the original route handler
-        response = await func(*args, **kwargs)
-        
-        # If the response is a tuple (for error responses), convert it to a Response object
-        if isinstance(response, tuple):
-            response = Response(*response)
-        
-        # Add CORS headers
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-        response.headers['Access-Control-Allow-Credentials'] = 'true'
-        
-        return response
-    return wrapper
 
 # Global Telegram Client
 client = TelegramClient('anon', api_id, api_hash)
@@ -99,22 +78,16 @@ def clean_old_links():
     while processed_links_last_30_minutes and (current_time - processed_links_last_30_minutes[0]) > THIRTY_MINUTES:
         processed_links_last_30_minutes.popleft()
 
-# OPTIONS handler
-@app.route('/options', methods=['OPTIONS'])
-async def handle_options():
-    response = Response()
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-    response.headers['Access-Control-Allow-Credentials'] = 'true'
-    return response
-
 @app.route('/', methods=['GET', 'OPTIONS'])
-@cors_middleware
 async def send_link():
-    # Handle OPTIONS preflight request
+    # Handle OPTIONS request
     if request.method == 'OPTIONS':
-        return '', 204
+        response = await make_response('')
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        response.status_code = 204
+        return response
 
     global processed_links_today
 
@@ -122,7 +95,9 @@ async def send_link():
     link = request.args.get('link')
 
     if not link:
-        return jsonify({"error": "No link provided!"}), 400
+        response = await make_response(jsonify({"error": "No link provided!"}), 400)
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
 
     # Reset daily limit if a new day has started
     if time.time() - daily_reset_timestamp > ONE_DAY:
@@ -133,7 +108,9 @@ async def send_link():
 
     # Check if either the 30-minute or daily limit has been exceeded
     if len(processed_links_last_30_minutes) >= MAX_LINKS_30_MINUTES or processed_links_today >= MAX_LINKS_PER_DAY:
-        return jsonify({"response": link})  # Return the original link if limits are exceeded
+        response = await make_response(jsonify({"response": link}))
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
 
     # Run the Telegram client interaction asynchronously
     bot_response = await interact_with_bot(link)
@@ -156,7 +133,9 @@ async def send_link():
     processed_links_today += 1  # Increment the daily counter
 
     # Return the bot's response as JSON
-    return jsonify({"response": bot_response})
+    response = await make_response(jsonify({"response": bot_response}))
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    return response
 
 if __name__ == '__main__':
     # Run the Quart app using Uvicorn for async support
