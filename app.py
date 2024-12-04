@@ -1,15 +1,20 @@
 from telethon import TelegramClient, events
-from quart import Quart, request, jsonify, make_response
+from quart import Quart, request, jsonify
 import asyncio
 import time
 from collections import deque
+import os
+import requests
+from flask import Flask, request, jsonify, abort
+from flask_cors import CORS
+import urllib.parse
 
 # Telegram API details
 api_id = 27938879
 api_hash = '86e62beef8f4195662914ebc25008b43'
 phone_number = '+8801790423900'
 
-# Create Quart app
+# Quart app (async version of Flask)
 app = Quart(__name__)
 
 # Global Telegram Client
@@ -78,26 +83,115 @@ def clean_old_links():
     while processed_links_last_30_minutes and (current_time - processed_links_last_30_minutes[0]) > THIRTY_MINUTES:
         processed_links_last_30_minutes.popleft()
 
-@app.route('/', methods=['GET', 'OPTIONS'])
-async def send_link():
-    # Handle OPTIONS request
-    if request.method == 'OPTIONS':
-        response = await make_response('')
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-        response.status_code = 204
-        return response
+# Flask API for link resolution
+flask_app = Flask(__name__)
 
+# Add more comprehensive CORS configuration
+cors_config = {
+    'origins': [
+        'http://localhost:3000',  # React development server
+        'https://nanoplayer.vercel.app',  # Production domain (replace with actual domain)
+        'http://127.0.0.1:3000',  # Alternative localhost
+        '*'  # Wildcard for development (remove in production)
+    ],
+    'methods': ['GET', 'OPTIONS'],
+    'allow_headers': [
+        'Content-Type', 
+        'Authorization', 
+        'Access-Control-Allow-Credentials'
+    ]
+}
+
+# Apply CORS with more granular configuration
+CORS(flask_app, 
+     resources={r"/*": cors_config},
+     supports_credentials=True  # Allow credentials if needed
+)
+
+def resolve_link(link):
+    """
+    Attempt to resolve and validate the given link.
+    
+    Args:
+        link (str): The original link to resolve
+    
+    Returns:
+        str: A resolved, safe URL or the original link
+    """
+    try:
+        # Decode the link in case it's URL encoded
+        decoded_link = urllib.parse.unquote(link)
+        
+        # Add some basic validation
+        if not decoded_link.startswith(('http://', 'https://')):
+            return link
+        
+        # Follow redirects and get the final URL
+        response = requests.head(
+            decoded_link, 
+            allow_redirects=True, 
+            timeout=5,
+            headers={'User-Agent': 'Mozilla/5.0'}
+        )
+        
+        # Return the final URL after redirects
+        return response.url
+    
+    except requests.exceptions.RequestException as e:
+        # If resolution fails, return original link
+        print(f"Link resolution error: {e}")
+        return link
+
+@flask_app.route('/', methods=['GET'])
+def resolve_video_link():
+    """
+    Endpoint to resolve video links.
+    
+    Query Parameters:
+        link (str): The video link to resolve
+    
+    Returns:
+        JSON response with resolved link
+    """
+    link = request.args.get('link')
+    
+    if not link:
+        abort(400, description="No link provided")
+    
+    try:
+        resolved_link = resolve_link(link)
+        return jsonify({
+            "response": resolved_link,
+            "original_link": link
+        })
+    
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "original_link": link
+        }), 500
+
+@flask_app.errorhandler(400)
+def bad_request(error):
+    return jsonify({"error": str(error)}), 400
+
+@flask_app.errorhandler(500)
+def server_error(error):
+    return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/flask', methods=['GET'])
+async def flask_api():
+    return flask_app.run(host='0.0.0.0', port=5001, debug=True)
+
+@app.route('/')
+async def send_link():
     global processed_links_today
 
     # Get the link from the query parameters
     link = request.args.get('link')
 
     if not link:
-        response = await make_response(jsonify({"error": "No link provided!"}), 400)
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        return response
+        return jsonify({"error": "No link provided!"}), 400
 
     # Reset daily limit if a new day has started
     if time.time() - daily_reset_timestamp > ONE_DAY:
@@ -108,9 +202,7 @@ async def send_link():
 
     # Check if either the 30-minute or daily limit has been exceeded
     if len(processed_links_last_30_minutes) >= MAX_LINKS_30_MINUTES or processed_links_today >= MAX_LINKS_PER_DAY:
-        response = await make_response(jsonify({"response": link}))
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        return response
+        return jsonify({"response": link})  # Return the original link if limits are exceeded
 
     # Run the Telegram client interaction asynchronously
     bot_response = await interact_with_bot(link)
@@ -133,9 +225,7 @@ async def send_link():
     processed_links_today += 1  # Increment the daily counter
 
     # Return the bot's response as JSON
-    response = await make_response(jsonify({"response": bot_response}))
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    return response
+    return jsonify({"response": bot_response})
 
 if __name__ == '__main__':
     # Run the Quart app using Uvicorn for async support
