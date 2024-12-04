@@ -88,13 +88,6 @@ async def send_link():
     if not link:
         return jsonify({"error": "No link provided!"}), 400
 
-    # Check if the link ends with `=1`
-    if not link.endswith('=1'):
-        return jsonify({"response": link})  # Return the original link if it doesn't end with `=1`
-
-    # Remove `=1` from the link before processing
-    link = link[:-2]
-
     # Reset daily limit if a new day has started
     if time.time() - daily_reset_timestamp > ONE_DAY:
         reset_daily_limit()
@@ -104,7 +97,7 @@ async def send_link():
 
     # Check if either the 30-minute or daily limit has been exceeded
     if len(processed_links_last_30_minutes) >= MAX_LINKS_30_MINUTES or processed_links_today >= MAX_LINKS_PER_DAY:
-        return jsonify({"response": link + '=1'})  # Return the original link if limits are exceeded
+        return jsonify({"response": link})  # Return the original link if limits are exceeded
 
     # Run the Telegram client interaction asynchronously
     bot_response = await interact_with_bot(link)
@@ -121,9 +114,6 @@ async def send_link():
         bot_response = link  # Return the original link if any unwanted text is found
     elif not bot_response.startswith('https://'):
         bot_response = link  # Return the original link if the bot's response is invalid
-
-    # Add `=1` back to the bot's response
-    bot_response += "=1"
 
     # Track this link processing event
     processed_links_last_30_minutes.append(time.time())  # Record the current timestamp
