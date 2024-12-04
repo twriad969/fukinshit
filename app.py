@@ -1,25 +1,37 @@
 from telethon import TelegramClient, events
-from quart import Quart, request, jsonify
-from quart_cors import cors  # Import CORS extension
+from quart import Quart, request, jsonify, Response
 import asyncio
 import time
 from collections import deque
+import functools
 
 # Telegram API details
 api_id = 27938879
 api_hash = '86e62beef8f4195662914ebc25008b43'
 phone_number = '+8801790423900'
 
-# Create Quart app first
+# Create Quart app
 app = Quart(__name__)
 
-# Then apply CORS with a more explicit configuration
-app = cors(app, 
-    allow_origin='*',  # Changed from list to string
-    allow_methods=['GET', 'POST', 'OPTIONS'],  # Explicitly list methods
-    allow_headers=['*'],  # Allow all headers
-    supports_credentials=True
-)
+# CORS Middleware Function
+def cors_middleware(func):
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        # Prepare the response from the original route handler
+        response = await func(*args, **kwargs)
+        
+        # If the response is a tuple (for error responses), convert it to a Response object
+        if isinstance(response, tuple):
+            response = Response(*response)
+        
+        # Add CORS headers
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+        
+        return response
+    return wrapper
 
 # Global Telegram Client
 client = TelegramClient('anon', api_id, api_hash)
@@ -87,8 +99,23 @@ def clean_old_links():
     while processed_links_last_30_minutes and (current_time - processed_links_last_30_minutes[0]) > THIRTY_MINUTES:
         processed_links_last_30_minutes.popleft()
 
+# OPTIONS handler
+@app.route('/options', methods=['OPTIONS'])
+async def handle_options():
+    response = Response()
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
+    return response
+
 @app.route('/', methods=['GET', 'OPTIONS'])
+@cors_middleware
 async def send_link():
+    # Handle OPTIONS preflight request
+    if request.method == 'OPTIONS':
+        return '', 204
+
     global processed_links_today
 
     # Get the link from the query parameters
@@ -130,11 +157,6 @@ async def send_link():
 
     # Return the bot's response as JSON
     return jsonify({"response": bot_response})
-
-# Optional explicit OPTIONS handler
-@app.route('/options', methods=['OPTIONS'])
-async def handle_options():
-    return '', 204
 
 if __name__ == '__main__':
     # Run the Quart app using Uvicorn for async support
