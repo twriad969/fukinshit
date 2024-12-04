@@ -1,5 +1,5 @@
 from telethon import TelegramClient, events
-from quart import Quart, request, jsonify, make_response
+from quart import Quart, request, jsonify
 import asyncio
 import time
 from collections import deque
@@ -11,14 +11,6 @@ phone_number = '+8801790423900'
 
 # Quart app (async version of Flask)
 app = Quart(__name__)
-
-@app.route('/', methods=['OPTIONS'])
-async def handle_options():
-    response = await make_response()
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-    return response
 
 # Global Telegram Client
 client = TelegramClient('anon', api_id, api_hash)
@@ -88,16 +80,13 @@ def clean_old_links():
 
 @app.route('/')
 async def send_link():
-    # Add CORS headers to the response
-    response = await make_response(jsonify({"error": "No link provided!"}), 400) if not request.args.get('link') else None
-    
     global processed_links_today
 
     # Get the link from the query parameters
     link = request.args.get('link')
 
     if not link:
-        return response
+        return jsonify({"error": "No link provided!"}), 400
 
     # Reset daily limit if a new day has started
     if time.time() - daily_reset_timestamp > ONE_DAY:
@@ -108,9 +97,7 @@ async def send_link():
 
     # Check if either the 30-minute or daily limit has been exceeded
     if len(processed_links_last_30_minutes) >= MAX_LINKS_30_MINUTES or processed_links_today >= MAX_LINKS_PER_DAY:
-        response = await make_response(jsonify({"response": link}))
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        return response
+        return jsonify({"response": link})  # Return the original link if limits are exceeded
 
     # Run the Telegram client interaction asynchronously
     bot_response = await interact_with_bot(link)
@@ -132,10 +119,8 @@ async def send_link():
     processed_links_last_30_minutes.append(time.time())  # Record the current timestamp
     processed_links_today += 1  # Increment the daily counter
 
-    # Return the bot's response as JSON with CORS headers
-    response = await make_response(jsonify({"response": bot_response}))
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    return response
+    # Return the bot's response as JSON
+    return jsonify({"response": bot_response})
 
 if __name__ == '__main__':
     # Run the Quart app using Uvicorn for async support
