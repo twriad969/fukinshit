@@ -6,3 +6,4 @@ quart==0.18.3
 uvicorn==0.22.0
 pyrogram==2.0.106
 tgcrypto==1.2.5
+werkzeug==2.3.6
