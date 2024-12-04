@@ -10,16 +10,15 @@ api_id = 27938879
 api_hash = '86e62beef8f4195662914ebc25008b43'
 phone_number = '+8801790423900'
 
-# Quart app (async version of Flask)
+# Create Quart app first
 app = Quart(__name__)
 
-# Apply CORS with maximally permissive settings
+# Then apply CORS with a more explicit configuration
 app = cors(app, 
-    allow_origin=['*'],  # Allow requests from any origin
-    allow_methods=['*'],  # Allow all HTTP methods
+    allow_origin='*',  # Changed from list to string
+    allow_methods=['GET', 'POST', 'OPTIONS'],  # Explicitly list methods
     allow_headers=['*'],  # Allow all headers
-    expose_headers=['*'],  # Expose all headers to the browser
-    supports_credentials=True  # Allow credentials (cookies, authorization headers, etc.)
+    supports_credentials=True
 )
 
 # Global Telegram Client
@@ -88,7 +87,7 @@ def clean_old_links():
     while processed_links_last_30_minutes and (current_time - processed_links_last_30_minutes[0]) > THIRTY_MINUTES:
         processed_links_last_30_minutes.popleft()
 
-@app.route('/')
+@app.route('/', methods=['GET', 'OPTIONS'])
 async def send_link():
     global processed_links_today
 
@@ -131,6 +130,11 @@ async def send_link():
 
     # Return the bot's response as JSON
     return jsonify({"response": bot_response})
+
+# Optional explicit OPTIONS handler
+@app.route('/options', methods=['OPTIONS'])
+async def handle_options():
+    return '', 204
 
 if __name__ == '__main__':
     # Run the Quart app using Uvicorn for async support
