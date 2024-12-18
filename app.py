@@ -1,5 +1,5 @@
-from telethon import TelegramClient, events
 from quart import Quart, request, jsonify
+from telethon import TelegramClient, events
 import asyncio
 import time
 from collections import deque
@@ -9,8 +9,9 @@ api_id = 12380656
 api_hash = 'd927c13beaaf5110f25c505b7c071273'
 phone_number = '+8801686157963'
 
-# Quart app (async version of Flask)
+# Quart app 
 app = Quart(__name__)
+app.config['PROVIDE_AUTOMATIC_OPTIONS'] = True  # Add this line to resolve the config issue
 
 # Global Telegram Client
 client = TelegramClient('anon', api_id, api_hash)
@@ -83,7 +84,7 @@ def clean_old_links():
     while processed_links_last_30_minutes and (current_time - processed_links_last_30_minutes[0]) > THIRTY_MINUTES:
         processed_links_last_30_minutes.popleft()
 
-@app.route('/')
+@app.route('/', methods=['GET'])
 async def send_link():
     global processed_links_today
 
@@ -107,7 +108,6 @@ async def send_link():
     # Run the Telegram client interaction asynchronously
     bot_response = await interact_with_bot(link)
 
-    # List of texts that indicate an issue with the bot response
     unwanted_texts = [
         "Too many attempts, please try again later",
         "The shared file is no longer available",
