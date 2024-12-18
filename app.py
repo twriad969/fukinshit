@@ -5,9 +5,9 @@ import time
 from collections import deque
 
 # Telegram API details
-api_id = 27938879
-api_hash = '86e62beef8f4195662914ebc25008b43'
-phone_number = '+8801790423900'
+api_id = 12380656
+api_hash = 'd927c13beaaf5110f25c505b7c071273'
+phone_number = '+8801686157963'
 
 # Quart app (async version of Flask)
 app = Quart(__name__)
@@ -59,10 +59,15 @@ async def interact_with_bot(link_to_send):
 
     # Wait until the bot response is received or a timeout
     try:
+        start_time = time.time()
         while bot_response is None:
+            if time.time() - start_time > 30:  # 30 seconds timeout
+                bot_response = link_to_send  # Return original link if no response
+                break
             await asyncio.sleep(1)  # Non-blocking wait
-    except asyncio.TimeoutError:
-        bot_response = "Timed out waiting for bot's response"
+    except Exception as e:
+        print(f"Error in bot interaction: {e}")
+        bot_response = link_to_send
 
     return bot_response
 
@@ -107,6 +112,7 @@ async def send_link():
         "Too many attempts, please try again later",
         "The shared file is no longer available",
         "ErrMsgLinkExpireFlag"
+        "System is busy, Please try again"
     ]
 
     # Check if the bot response contains any unwanted text
