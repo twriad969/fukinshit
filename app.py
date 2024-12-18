@@ -1,76 +1,71 @@
-from quart import Quart, request, jsonify
+from flask import Flask, request, jsonify
 from telethon import TelegramClient, events
 import asyncio
 import time
 from collections import deque
+import threading
 
 # Telegram API details
 api_id = 12380656
 api_hash = 'd927c13beaaf5110f25c505b7c071273'
 phone_number = '+8801686157963'
 
-# Quart app 
-app = Quart(__name__)
-app.config['PROVIDE_AUTOMATIC_OPTIONS'] = True  # Add this line to resolve the config issue
+# Flask app
+app = Flask(__name__)
 
-# Global Telegram Client
+# Shared asyncio event loop for Telegram client
+telegram_loop = asyncio.new_event_loop()
+asyncio.set_event_loop(telegram_loop)
 client = TelegramClient('anon', api_id, api_hash)
 
 # Limit counters
-processed_links_last_30_minutes = deque()  # Track timestamps of the last 30 mins processed links
-processed_links_today = 0  # Count of processed links today
-daily_reset_timestamp = time.time()  # Timestamp when the daily limit was last reset
+processed_links_last_30_minutes = deque()
+processed_links_today = 0
+daily_reset_timestamp = time.time()
 
 # Limits
 MAX_LINKS_30_MINUTES = 5000
 MAX_LINKS_PER_DAY = 50000
-THIRTY_MINUTES = 30 * 60  # 30 minutes in seconds
-ONE_DAY = 24 * 60 * 60  # 1 day in seconds
+THIRTY_MINUTES = 30 * 60
+ONE_DAY = 24 * 60 * 60
 
-# Start the client globally once
-@app.before_serving
-async def startup():
-    print("Starting Telegram client...")
+# Initialize Telegram client
+async def start_client():
     await client.start(phone=phone_number)
+    print("Telegram client started!")
 
-@app.after_serving
-async def shutdown():
-    print("Stopping Telegram client...")
-    await client.disconnect()
+def start_telegram_loop():
+    asyncio.set_event_loop(telegram_loop)
+    telegram_loop.run_until_complete(start_client())
+    telegram_loop.run_forever()
 
-# Interact with the bot in a non-blocking way
+threading.Thread(target=start_telegram_loop, daemon=True).start()
+
+# Graceful shutdown for Telegram client
+def stop_telegram_client():
+    asyncio.run_coroutine_threadsafe(client.disconnect(), telegram_loop)
+    telegram_loop.stop()
+
+# Interact with the bot
 async def interact_with_bot(link_to_send):
     bot_response = None
-
-    # The bot username
     bot_username = '@LinkConvertTerabot'
 
-    # Send the link to the bot
     print(f"Sending the link to {bot_username}...")
     await client.send_message(bot_username, link_to_send)
 
-    # Create an event handler to capture the bot's response
     @client.on(events.NewMessage(from_users=bot_username))
     async def handler(event):
         nonlocal bot_response
         bot_response = event.message.text
         print("Bot response: ", bot_response)
-        # Stop listening once the response is captured
         client.remove_event_handler(handler)
 
-    # Wait until the bot response is received or a timeout
-    try:
-        start_time = time.time()
-        while bot_response is None:
-            if time.time() - start_time > 30:  # 30 seconds timeout
-                bot_response = link_to_send  # Return original link if no response
-                break
-            await asyncio.sleep(1)  # Non-blocking wait
-    except Exception as e:
-        print(f"Error in bot interaction: {e}")
-        bot_response = link_to_send
+    start_time = time.time()
+    while bot_response is None and time.time() - start_time < 30:
+        await asyncio.sleep(1)
 
-    return bot_response
+    return bot_response or link_to_send
 
 # Helper to reset daily counters
 def reset_daily_limit():
@@ -78,57 +73,50 @@ def reset_daily_limit():
     processed_links_today = 0
     daily_reset_timestamp = time.time()
 
-# Helper to clean up old timestamps in the last 30-minute window
+# Helper to clean up old timestamps
 def clean_old_links():
     current_time = time.time()
     while processed_links_last_30_minutes and (current_time - processed_links_last_30_minutes[0]) > THIRTY_MINUTES:
         processed_links_last_30_minutes.popleft()
 
 @app.route('/', methods=['GET'])
-async def send_link():
+def send_link():
     global processed_links_today
 
-    # Get the link from the query parameters
     link = request.args.get('link')
-
     if not link:
         return jsonify({"error": "No link provided!"}), 400
 
-    # Reset daily limit if a new day has started
     if time.time() - daily_reset_timestamp > ONE_DAY:
         reset_daily_limit()
 
-    # Clean up old links from the 30-minute window
     clean_old_links()
 
-    # Check if either the 30-minute or daily limit has been exceeded
     if len(processed_links_last_30_minutes) >= MAX_LINKS_30_MINUTES or processed_links_today >= MAX_LINKS_PER_DAY:
-        return jsonify({"response": link})  # Return the original link if limits are exceeded
+        return jsonify({"response": link})
 
-    # Run the Telegram client interaction asynchronously
-    bot_response = await interact_with_bot(link)
+    future = asyncio.run_coroutine_threadsafe(interact_with_bot(link), telegram_loop)
+    bot_response = future.result()
 
     unwanted_texts = [
         "Too many attempts, please try again later",
         "The shared file is no longer available",
-        "ErrMsgLinkExpireFlag"
+        "ErrMsgLinkExpireFlag",
         "System is busy, Please try again"
     ]
 
-    # Check if the bot response contains any unwanted text
     if any(unwanted_text in bot_response for unwanted_text in unwanted_texts):
-        bot_response = link  # Return the original link if any unwanted text is found
+        bot_response = link
     elif not bot_response.startswith('https://'):
-        bot_response = link  # Return the original link if the bot's response is invalid
+        bot_response = link
 
-    # Track this link processing event
-    processed_links_last_30_minutes.append(time.time())  # Record the current timestamp
-    processed_links_today += 1  # Increment the daily counter
+    processed_links_last_30_minutes.append(time.time())
+    processed_links_today += 1
 
-    # Return the bot's response as JSON
     return jsonify({"response": bot_response})
 
 if __name__ == '__main__':
-    # Run the Quart app using Uvicorn for async support
-    import uvicorn
-    uvicorn.run(app, host='0.0.0.0', port=5000)
+    try:
+        app.run(host='0.0.0.0', port=5000)
+    finally:
+        stop_telegram_client()
